@@ -61,7 +61,7 @@ public abstract class AdminActionBase implements AdminAction {
     }
     
     @Override
-    public final Map<String, Object> results() {
+    public Map<String, Object> results() {
         return result;
     }
     
@@ -107,7 +107,7 @@ public abstract class AdminActionBase implements AdminAction {
         throw new Exception(o.toString());
     }
 
-    protected final void error(Exception e) throws Exception {
+    public final void error(Exception e) throws Exception {
         if (error == null)
             error = new HashMap<String, Object>();
         error.put("exception", e);

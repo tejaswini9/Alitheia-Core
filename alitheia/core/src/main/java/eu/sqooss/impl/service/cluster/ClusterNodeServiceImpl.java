@@ -96,60 +96,13 @@ public class ClusterNodeServiceImpl extends HttpServlet implements ClusterNodeSe
     }
     
     /**
-     * Assign a StoredProject to a ClusterNode
-     * Reasonable causes of failure:
-     *  1.NULL passed server
-     *  2.NULL passed project
-     *  3.Assignment is locked (server is working on project)
-     *  
-     * @param node the cluster node target
-     * @param project stored project to assign 
-     * @return
-     */
-    public boolean assignProject(ClusterNode node, StoredProject project) throws ClusterNodeActionException {
-    	// check if valid server passed
-        if (node==null) {
-    		throw new ClusterNodeActionException("Request to assign a project to a null clusternode");
-    	}
-    	// check if valid project passed
-    	if (project==null) {
-    		throw new ClusterNodeActionException("Request to assign a null project to a clusternode");
-    	}
-
-        try {          
-        	// check if project is already assigned to any ClusterNode
-            ClusterNode assignment = project.getClusternode();
-            if (assignment == null) {
-                // new project assignment
-                logger.info("Assigning project " + project.getName() + " to "
-                        + node.getName());
-                node.getProjects().add(project);
-            } else {
-                logger.info("Moving project " + project.getName() + " from "
-                        + assignment.getName() + " to "
-                        + node.getName());
-                if (assignment.getId() == node.getId()) {
-                    logger.info("No need to move " + project.getName()
-                            + " - Already assigned!");
-                    return true;
-                }
-            }
-        } catch (Exception e) {
-            throw new ClusterNodeActionException("Failed to assign project ["
-                    + project.getName() + "] to clusternode [" + node.getName()
-                    + "]");
-        }
-    	return true;
-    }
-
-    /**
      * Assign a StoredProject to this ClusterNode
      * @param project project to assign
      * @return  
      */
     public boolean assignProject(StoredProject project) throws ClusterNodeActionException {
 		try {
-			return assignProject(thisNode, project);
+			return thisNode.assignProject(logger, thisNode, project);
 		} catch (ClusterNodeActionException ex) {
 			throw ex;
 		}
@@ -316,7 +269,7 @@ public class ClusterNodeServiceImpl extends HttpServlet implements ClusterNodeSe
          	     }
          	 }
         	 try {
-        	     if (assignProject(node,project)){
+        	     if (thisNode.assignProject(logger, node, project)){
         	    	content = createXMLResponse(null, "Project " + project.getName() + " assigned to " + node.getName(), HttpServletResponse.SC_OK);
         	    	sendXMLResponse(response, HttpServletResponse.SC_OK, content);       	    	
         	     }        	     

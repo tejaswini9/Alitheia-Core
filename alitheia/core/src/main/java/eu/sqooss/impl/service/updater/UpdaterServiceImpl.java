@@ -47,10 +47,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 import org.osgi.framework.BundleContext;
-import org.osgi.framework.ServiceReference;
 
 import eu.sqooss.core.AlitheiaCore;
-import eu.sqooss.service.cluster.ClusterNodeActionException;
 import eu.sqooss.service.cluster.ClusterNodeService;
 import eu.sqooss.service.db.ClusterNode;
 import eu.sqooss.service.db.DBService;
@@ -71,17 +69,22 @@ import eu.sqooss.service.util.GraphTS;
 
 public class UpdaterServiceImpl implements UpdaterService, JobStateListener {
 
-    private Logger logger = null;
+    protected Logger logger = null;
     private AlitheiaCore core = null;
     private BundleContext context;
     private DBService dbs = null;
     
     /* Maps project-ids to the jobs that have been scheduled for 
      * each update target*/
-    private ConcurrentMap<Long,Map<Updater, UpdaterJob>> scheduledUpdates;
+    protected ConcurrentMap<Long,Map<Updater, UpdaterJob>> scheduledUpdates;
     
     /* List of registered updaters */
-    private BidiMap<Updater, Class<? extends MetadataUpdater>> updaters;
+    protected BidiMap<Updater, Class<? extends MetadataUpdater>> updaters;
+    
+    protected List<Job> jobs;
+    protected BidiMap<Updater, Job> toSchedule;
+    protected DependencyJob oldDepJob;
+    protected List<Updater> updForStage;
 
     /* UpdaterService interface methods*/
     /** {@inheritDoc} */
@@ -205,6 +208,7 @@ public class UpdaterServiceImpl implements UpdaterService, JobStateListener {
         return false;
     }
     
+    
     /* AlitheiaCoreService interface methods*/
     @Override
     public void shutDown() {
@@ -292,11 +296,11 @@ public class UpdaterServiceImpl implements UpdaterService, JobStateListener {
         }
         return met;
     }
-    
+        
     /**
      * Add an update job of the given type or the specific updater for the project. 
      */
-    private boolean update(StoredProject project, UpdaterStage stage, Updater updater) {
+    protected boolean update(StoredProject project, UpdaterStage stage, Updater updater) {
         
         ClusterNodeService cns = null;
         
@@ -306,7 +310,8 @@ public class UpdaterServiceImpl implements UpdaterService, JobStateListener {
         }     
         
          /// ClusterNode Checks - Clone to MetricActivatorImpl
-        cns = core.getClusterNodeService();
+        cns = getClusterNodeService(); 
+        
         if (cns==null) {
             logger.warn("ClusterNodeService reference not found " +
             		"- ClusterNode assignment checks will be ignored");
@@ -356,168 +361,202 @@ public class UpdaterServiceImpl implements UpdaterService, JobStateListener {
          * stages. The result of this loop is a list of jobs with properly set
          * dependencies to ensure correct execution.
          */
-        List<Job> jobs = new LinkedList<Job>();
-        BidiMap<Updater, Job> toSchedule = new BidiMap<Updater, Job>();
-        DependencyJob oldDepJob = null;
-        try {
-            for (UpdaterStage us : stages) {
-                
-                // Topologically sort updaters within the same stage
-                List<Updater> updForStage = new ArrayList<Updater>();
-                updForStage.addAll(getUpdaters(project, us));
-                GraphTS<Updater> graph = 
-                    new GraphTS<Updater>(updForStage.size());
-                BidiMap<Updater, Integer> idx = 
-                    new BidiMap<Updater, Integer>();
+         return setListOfJobs(stages, project, updater);
+    }
+    
+    protected ClusterNodeService getClusterNodeService() {
+    	return core.getClusterNodeService();
+    }
+    
+    protected boolean setListOfJobs(List<UpdaterStage> stages, StoredProject project, Updater updater) {
+    	 jobs = new LinkedList<Job>();
+         toSchedule = new BidiMap<Updater, Job>();
+         oldDepJob = null;
+         
+         try {
+	    	for (UpdaterStage us : stages) {
+	            
+	            // Topologically sort updaters within the same stage
+	            updForStage = new ArrayList<Updater>();
+	            updForStage.addAll(getUpdaters(project, us));
+	            GraphTS<Updater> graph = 
+	                new GraphTS<Updater>(updForStage.size());
+	            BidiMap<Updater, Integer> idx = 
+	                new BidiMap<Updater, Integer>();
+	
+	            //Construct a adjacency matrix for dependencies
+	            for (Updater u : updForStage) {
+	                if (!checkDependencies(u))
+	                    return false;
+	                if (!idx.containsKey(u)) {
+	                    int n = graph.addVertex(u);
+	                    idx.put(u, n);
+	                }
+	
+	                for (String dependency : u.dependencies()) {
+	                    Updater dep = getUpdaterByMnemonic(dependency);
+	
+	                    // Updaters are allowed to introduce self depedencies
+	                    if (u.equals(dep)) {
+	                        continue;
+	                    }
+	
+	                    if (!idx.containsKey(dep)) {
+	                        int n = graph.addVertex(dep);
+	                        idx.put(dep, n);
+	                    }
+	                    graph.addEdge(idx.get(u), idx.get(dep));
+	                }
+	            }
+	
+	            // Topo-sort
+	            updForStage = graph.topo();
+	
+	            // We now have updaters in correct execution order
+	            DependencyJob depJob = new DependencyJob(us.toString());
 
-                //Construct a adjacency matrix for dependencies
-                for (Updater u : updForStage) {
-                    if (!checkDependencies(u))
-                        return false;
-                    if (!idx.containsKey(u)) {
-                        int n = graph.addVertex(u);
-                        idx.put(u, n);
-                    }
+	            scheduleUpdaters(project, updater, depJob);
+	            
+	            if (oldDepJob != null)
+		                depJob.addDependency(oldDepJob);
+		
+	            jobs.add(depJob);
+	            oldDepJob = depJob;
+	        }
+	
+	        //Enqueue jobs
+	    	enqueueJobs(project); 
+	    } catch (SchedulerException e) {
+	        logger.error("Cannot schedule update job(s):" + e.getMessage(), e);
+	        return false;
+	    } catch (InstantiationException e) {
+	        logger.error("Cannot instantiate updater:" + e.getMessage(), e);
+	        return false;
+	    } catch (IllegalAccessException e) {
+	        logger.error("Cannot load updater class:" + e.getMessage(), e);
+	        return false;
+	    }
+         
+        return true;
+    }
+    
+    protected void enqueueBlockOfScheduler(List<Job> toQueue) throws SchedulerException {
+    	AlitheiaCore.getInstance().getScheduler().enqueueBlock(toQueue);
+    }
+    
+    protected void scheduleUpdaters(StoredProject project, Updater updater, DependencyJob depJob) 
+    		throws SchedulerException, InstantiationException, IllegalAccessException {
+    	
+    	List<String> deps = new ArrayList<String>();
+         
+    	if (updater != null)
+            deps = Arrays.asList(updater.dependencies());
+         
+    	for (Updater u : updForStage) {
+            /*
+             * Ignore the current in case we have an updater specified
+             * as argument unless the updater is the same as the
+             * argument of the current updater is a dependency to the
+             * one we have as argument :-)
+             */
+            if (updater != null &&
+                    !updater.equals(u) &&
+                    !deps.contains(u.mnem())) {
+                    continue;
+            }
 
-                    for (String dependency : u.dependencies()) {
-                        Updater dep = getUpdaterByMnemonic(dependency);
+            // Create an updater job
+            MetadataUpdater upd = getMetadataUpdater(u);
+            setUpdateParams(upd, project, logger);
+            
 
-                        // Updaters are allowed to introduce self depedencies
-                        if (u.equals(dep)) {
-                            continue;
-                        }
+            UpdaterJob uj = null;
+            /*
+             * If an update has already been scheduled for a specific
+             * updater, just re-use this job for dependency tracking.
+             * Also put the job in the queue of jobs that are about to
+             * be scheduled to allow other jobs to declare dependencies
+             * to it. If in the mean time the dependent job finishes
+             * execution, the dependee will just continue execution.
+             */
+            if (isUpdateRunning(project, u)) {
+                uj = scheduledUpdates.get(project.getId()).get(u);
+            } else {
+                uj = new UpdaterJob(upd);
+                uj.addJobStateListener(this);
+                toSchedule.put(u, uj);
+            }
 
-                        if (!idx.containsKey(dep)) {
-                            int n = graph.addVertex(dep);
-                            idx.put(dep, n);
-                        }
-                        graph.addEdge(idx.get(u), idx.get(dep));
-                    }
-                }
+            // Add dependency to stage level job
+            depJob.addDependency(uj);
+            jobs.add(uj);
+            
+            if (isUpdateRunning(project, u))
+                continue;
+            
+            //Add dependency to previous stage dependency job
+            if (oldDepJob != null)
+                uj.addDependency(oldDepJob);
 
-                // Topo-sort
-                updForStage = graph.topo();
+            // Add dependencies to previously scheduled jobs
+            // within the same stage
+            List<Class<? extends MetadataUpdater>> dependencies = 
+                new ArrayList<Class<? extends MetadataUpdater>>();
 
-                // We now have updaters in correct execution order
-                DependencyJob depJob = new DependencyJob(us.toString());
+            for (String s : u.dependencies()) {
+                dependencies.add(updaters.get(getUpdaterByMnemonic(s)));
+            }
 
-                List<String> deps = new ArrayList<String>();
-                if (updater != null)
-                    deps = Arrays.asList(updater.dependencies());
-
-                for (Updater u : updForStage) {
-                    /*
-                     * Ignore the current in case we have an updater specified
-                     * as argument unless the updater is the same as the
-                     * argument of the current updater is a dependency to the
-                     * one we have as argument :-)
-                     */
-                    if (updater != null &&
-                            !updater.equals(u) &&
-                            !deps.contains(u.mnem())) {
-                            continue;
-                    }
-
-                    // Create an updater job
-                    MetadataUpdater upd = updaters.get(u).newInstance();
-                    upd.setUpdateParams(project, logger);
-
-                    UpdaterJob uj = null;
-                    /*
-                     * If an update has already been scheduled for a specific
-                     * updater, just re-use this job for dependency tracking.
-                     * Also put the job in the queue of jobs that are about to
-                     * be scheduled to allow other jobs to declare dependencies
-                     * to it. If in the mean time the dependent job finishes
-                     * execution, the dependee will just continue execution.
-                     */
-                    if (isUpdateRunning(project, u)) {
-                        uj = scheduledUpdates.get(project.getId()).get(u);
-                    } else {
-                        uj = new UpdaterJob(upd);
-                        uj.addJobStateListener(this);
-                        toSchedule.put(u, uj);
-                    }
-
-                    // Add dependency to stage level job
-                    depJob.addDependency(uj);
-                    jobs.add(uj);
-                    
-                    if (isUpdateRunning(project, u))
+            for (Class<? extends MetadataUpdater> d : dependencies) {
+                for (Job j : jobs) {
+                    if (!(j instanceof UpdaterJob))
                         continue;
-                    
-                    //Add dependency to previous stage dependency job
-                    if (oldDepJob != null)
-                        uj.addDependency(oldDepJob);
-
-                    // Add dependencies to previously scheduled jobs
-                    // within the same stage
-                    List<Class<? extends MetadataUpdater>> dependencies = 
-                        new ArrayList<Class<? extends MetadataUpdater>>();
-
-                    for (String s : u.dependencies()) {
-                        dependencies.add(updaters.get(getUpdaterByMnemonic(s)));
-                    }
-
-                    for (Class<? extends MetadataUpdater> d : dependencies) {
-                        for (Job j : jobs) {
-                            if (!(j instanceof UpdaterJob))
-                                continue;
-                            if (((UpdaterJob) j).getUpdater().getClass().equals(d)) {
-                                uj.addDependency(j);
-                            }
-                        }
+                    if (((UpdaterJob) j).getUpdater().getClass().equals(d)) {
+                        uj.addDependency(j);
                     }
                 }
+            }
+        }
+    }
+    
+    protected MetadataUpdater getMetadataUpdater(Updater u) throws InstantiationException, IllegalAccessException {
+    	return updaters.get(u).newInstance();
+    }
+    
+    protected void setUpdateParams(MetadataUpdater upd, StoredProject project, Logger logger) {
+    	upd.setUpdateParams(project, logger);
+    }
+    
+    protected void enqueueJobs(StoredProject project) throws SchedulerException {
+    	List<Job> toQueue = new ArrayList<Job>();
+        for (Job job : jobs) {
+            if (!scheduledUpdates.containsKey(project.getId()))
+                scheduledUpdates.put(project.getId(),
+                        new HashMap<Updater, UpdaterJob>());
 
-                if (oldDepJob != null)
-                    depJob.addDependency(oldDepJob);
-
-                jobs.add(depJob);
-                oldDepJob = depJob;
+            //Don't schedule a job that has been scheduled before
+            Collection<UpdaterJob> schedJobs = scheduledUpdates.get(project.getId()).values();
+            boolean dontSchedule = false;
+            for (Job j : schedJobs) {
+                if (job.equals(j)) {
+                    dontSchedule = true; 
+                    break;
+                }
             }
 
-            //Enqueue jobs
-            List<Job> toQueue = new ArrayList<Job>();
-            for (Job job : jobs) {
-                if (!scheduledUpdates.containsKey(project.getId()))
-                    scheduledUpdates.put(project.getId(),
-                            new HashMap<Updater, UpdaterJob>());
-
-                //Don't schedule a job that has been scheduled before
-                Collection<UpdaterJob> schedJobs = scheduledUpdates.get(project.getId()).values();
-                boolean dontSchedule = false;
-                for (Job j : schedJobs) {
-                    if (job.equals(j)) {
-                        dontSchedule = true; 
-                        break;
-                    }
-                }
-
-                if (dontSchedule) {
-                    logger.warn("Job " + job + " has been scheduled before, ignoring");
-                    continue;
-                }
-                toQueue.add(job);
-                //DependencyJobs don't need to be tracked
-                if (!(job instanceof UpdaterJob))
-                    continue;
-                scheduledUpdates.get(project.getId()).put(
-                        toSchedule.getKey(job), (UpdaterJob)job);
+            if (dontSchedule) {
+                logger.warn("Job " + job + " has been scheduled before, ignoring");
+                continue;
             }
-            AlitheiaCore.getInstance().getScheduler().enqueueBlock(toQueue);
-        } catch (SchedulerException e) {
-            logger.error("Cannot schedule update job(s):" + e.getMessage(), e);
-            return false;
-        } catch (InstantiationException e) {
-            logger.error("Cannot instantiate updater:" + e.getMessage(), e);
-            return false;
-        } catch (IllegalAccessException e) {
-            logger.error("Cannot load updater class:" + e.getMessage(), e);
-            return false;
+            toQueue.add(job);
+            //DependencyJobs don't need to be tracked
+            if (!(job instanceof UpdaterJob))
+                continue;
+            scheduledUpdates.get(project.getId()).put(
+                    toSchedule.getKey(job), (UpdaterJob)job);
         }
         
-        return true;
+        enqueueBlockOfScheduler(toQueue); 
     }
 
     /**
@@ -585,9 +624,9 @@ public class UpdaterServiceImpl implements UpdaterService, JobStateListener {
     }
     
     /*Dummy jobs to ensure correct sequencing of jobs within updater stages */
-    private class DependencyJob extends Job {
+    protected class DependencyJob extends Job {
         private String name;
-        private DependencyJob(){};
+        protected DependencyJob(){};
         public DependencyJob(String name) { this.name = name;}
         public long priority() {return 0;}
         protected void run() throws Exception {}

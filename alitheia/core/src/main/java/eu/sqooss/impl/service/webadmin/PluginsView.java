@@ -265,8 +265,8 @@ public class PluginsView extends AbstractView{
                         // Create configuration property
                         else {
                             try {
-                                if (selPI.addConfigEntry(
-                                        sobjDB,
+                                if (new PluginConfiguration().addConfigEntry(
+                                		selPI,
                                         reqValPropName,
                                         reqValPropDescr,
                                         reqValPropType,
@@ -785,8 +785,7 @@ public class PluginsView extends AbstractView{
                                 + i.getPluginVersion() + "</td>\n");
                         b.append(sp(--in) + "</tr>\n");
                         // Extended plug-in information
-                        b.append(renderPluginAttributes(
-                                i, reqValShowProp, reqValShowActv, in));
+                        b.append(renderPluginAttributes(i, reqValShowProp, reqValShowActv, in));
                     }
                 }
                 //------------------------------------------------------------
@@ -820,8 +819,7 @@ public class PluginsView extends AbstractView{
                                 + i.getPluginVersion() + "</td>\n");
                         b.append(sp(--in) + "</tr>\n");
                         // Extended plug-in information
-                        b.append(renderPluginAttributes(
-                                i, reqValShowProp, reqValShowActv, in));
+                        b.append(renderPluginAttributes(i, reqValShowProp, reqValShowActv, in));
                     }
                 }
                 //------------------------------------------------------------
@@ -936,7 +934,7 @@ public class PluginsView extends AbstractView{
      * 
      * @return The table as HTML presentation.
      */
-    private static String renderPluginAttributes(
+    protected static String renderPluginAttributes(
             PluginInfo pluginInfo,
             boolean showProperties,
             boolean showActivators,

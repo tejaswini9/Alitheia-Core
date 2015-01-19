@@ -126,7 +126,7 @@ public class DBServiceImpl implements DBService, AlitheiaCoreService {
     private AtomicBoolean isInitialised = new AtomicBoolean(false);
     private Properties conProp = new Properties();
     
-    private void logSQLException(SQLException e) {
+    protected void logSQLException(SQLException e) {
 
         while (e != null) {
             String message = String.format("SQLException: SQL State:%s, Error Code:%d, Message:%s",
@@ -136,7 +136,7 @@ public class DBServiceImpl implements DBService, AlitheiaCoreService {
         }
     }
     
-    private void logExceptionAndTerminateSession( Exception e ) {
+    protected void logExceptionAndTerminateSession( Exception e ) {
         if ( e instanceof JDBCException ) {
             JDBCException jdbce = (JDBCException) e;
             logSQLException(jdbce.getSQLException());
@@ -159,7 +159,7 @@ public class DBServiceImpl implements DBService, AlitheiaCoreService {
         
     }
    
-    private boolean checkSession() {
+    protected boolean checkSession() {
         if ( !isDBSessionActive() ) {
             logger.warn("Trying to call a DBService method without an active session");
             try {
@@ -172,7 +172,7 @@ public class DBServiceImpl implements DBService, AlitheiaCoreService {
         return true;
     }
     
-    private boolean getJDBCConnection() {
+    protected boolean getJDBCConnection() {
         String driver = conProp.getProperty("hibernate.connection.driver_class");
         try {
             Driver d = (Driver)Class.forName(driver).newInstance();
@@ -210,7 +210,7 @@ public class DBServiceImpl implements DBService, AlitheiaCoreService {
         }
     }
 
-    private boolean initHibernate(URL configFileURL) {
+    protected boolean initHibernate(URL configFileURL) {
         
         logger.info("Initializing Hibernate with URL <" + configFileURL + ">");
         if (configFileURL == null) {
@@ -308,7 +308,7 @@ public class DBServiceImpl implements DBService, AlitheiaCoreService {
     }
 
     @SuppressWarnings("unchecked")
-    private <T extends DAObject> T doFindObjectById(Class<T> daoClass, long id, boolean useLock) {
+    protected <T extends DAObject> T doFindObjectById(Class<T> daoClass, long id, boolean useLock) {
         if ( !checkSession() )
             return null;
         
@@ -330,7 +330,7 @@ public class DBServiceImpl implements DBService, AlitheiaCoreService {
     }
 
     @SuppressWarnings("unchecked")
-    private <T extends DAObject> List<T> doFindObjectsByProperties(Class<T> daoClass, Map<String,Object> properties, boolean useLock) {
+    protected <T extends DAObject> List<T> doFindObjectsByProperties(Class<T> daoClass, Map<String,Object> properties, boolean useLock) {
         if( !checkSession() )
             return Collections.emptyList();
 

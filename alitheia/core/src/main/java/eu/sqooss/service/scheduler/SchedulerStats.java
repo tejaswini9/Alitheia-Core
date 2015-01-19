@@ -38,7 +38,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Vector;
 
-import org.apache.commons.collections.list.SynchronizedList;
+import eu.sqooss.service.admin.actions.RunTimeInfo;
 
 public class SchedulerStats {
     // the number of jobs currently in the scheduler
@@ -172,5 +172,17 @@ public class SchedulerStats {
             jobDescr.add(j.toString());
         }
         return jobDescr;
+    }
+    
+    public void statsForExecute(RunTimeInfo runTimeInfo) throws Exception {
+    	try {
+            runTimeInfo.results().put("sched.jobs.failed", getFailedJobs());
+            runTimeInfo.results().put("sched.jobs.wait", getWaitingJobs());
+            runTimeInfo.results().put("sched.jobs.finished", getFinishedJobs());
+            runTimeInfo.results().put("sched.threads.idle", getIdleWorkerThreads());
+            runTimeInfo.results().put("sched.threads.total", getWorkerThreads());
+        } catch (Exception e) {
+            runTimeInfo.error(e);
+        }
     }
 }

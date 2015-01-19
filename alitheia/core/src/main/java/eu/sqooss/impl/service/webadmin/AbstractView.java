@@ -107,7 +107,7 @@ public abstract class AbstractView {
         this.vc = vc;
         this.bc = bundlecontext;
        
-        sobjCore = AlitheiaCore.getInstance();
+        sobjCore = getCore();
         
         // Retrieve the instances of the core components
         if (sobjCore != null) {
@@ -160,6 +160,10 @@ public abstract class AbstractView {
             if ((sobjSecurity == null) && (sobjLogger != null))
                 sobjLogger.debug("Could not get the security manager's instance.");
         }
+    }
+    
+    public AlitheiaCore getCore() {
+    	return AlitheiaCore.getInstance();
     }
 
     /**

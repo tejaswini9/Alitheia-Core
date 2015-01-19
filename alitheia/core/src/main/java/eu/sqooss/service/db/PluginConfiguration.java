@@ -48,6 +48,8 @@ import javax.persistence.ManyToOne;
 import javax.persistence.Table;
 
 import eu.sqooss.core.AlitheiaCore;
+import eu.sqooss.service.pa.PluginInfo;
+import eu.sqooss.service.pa.PluginInfo.ConfigurationType;
 
 @Entity
 @Table(name="PLUGIN_CONFIGURATION")
@@ -164,4 +166,82 @@ public class PluginConfiguration extends DAObject {
         
         return true;
     }
+    
+    /**
+     * Adds a new configuration property for this metric plug-in by creating
+     * a new database record for it.
+     *
+     * @param db the DB components object
+     * @param name the configuration property's name
+     * @param description the configuration property's description
+     * @param type the configuration property's type
+     * @param value the configuration property's value
+     *
+     * @return <code>true</code> upon successful append, of <code>false</code>
+     *   when a corresponding database record can not be created.
+     *
+     * @throws <code>Exception</code> upon incorrect value's syntax,
+     *   invalid property's type, or invalid property's name.
+     */
+    public boolean addConfigEntry(PluginInfo pluginInfo, String name, 
+    		String description, String type, String value) throws Exception {
+        // Check for an invalid name
+        if (name == null) {
+            throw new Exception("Invalid name!");
+        }
+
+        // Check for invalid type
+        if ((type == null)
+                || (ConfigurationType.fromString(type) == null)) {
+            throw new Exception("Invalid type!");
+        }
+
+        // Check for invalid value
+        if (value == null) {
+            throw new Exception("Invalid value!");
+        }
+        // Check for invalid boolean value
+        else if (type.equals(ConfigurationType.BOOLEAN.toString())) {
+            if ((value.equals("true") == false)
+                    && (value.equals("false") == false)) {
+                throw new Exception("Not a valid boolean value!");
+            }
+        }
+        // Check for an invalid integer value
+        else if (type.equals(ConfigurationType.INTEGER.toString())) {
+            try {
+                Integer.valueOf(value);
+            } catch (NumberFormatException nfe) {
+                throw new Exception("Not a valid integer value!");
+            }
+        }
+     
+     // Check for an invalid double value
+        else if (type.equals(ConfigurationType.DOUBLE.toString())) {
+            try {
+                Double.valueOf(value);
+            } catch (NumberFormatException nfe) {
+                throw new Exception("Not a valid double value!");
+            }
+        }
+
+        // Add the new configuration property
+        boolean addConfiguration = addConfiguration(pluginInfo, name, description, type, value);
+                
+        return addConfiguration;
+    }
+    
+    protected boolean addConfiguration(PluginInfo pluginInfo, String name, String description, String type, String value) {
+    	PluginConfiguration newParam = new PluginConfiguration();
+        newParam.setName(name);
+        newParam.setMsg((description != null) ? description : "");
+        newParam.setType(type);
+        newParam.setValue(value);
+        
+        Plugin p = Plugin.getPluginByHashcode(pluginInfo.getHashcode());
+        newParam.setPlugin(p);
+        
+        return p.getConfigurations().add(newParam);
+    }
+       
 }

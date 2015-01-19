@@ -554,13 +554,11 @@ public class FDSServiceImpl implements FDSService, Runnable {
         // Search for a cached checkout that could be updated
         /*Set<String> c = checkoutCache.keySet();
         OnDiskCheckoutImpl updatable = null;
-
         for (String s : c) {
             if (cacheKeyProject(s).equals(pv.getProject())) {
                 ProjectVersion cached = cacheKeyProjectVersion(s);
                 if (cached.lt(pv)) {
                     updatable = (OnDiskCheckoutImpl) getCheckoutFromCache(cached);
-
                     if (checkoutHandles.get(updatable) == 1) {
                         try {
                             updateCheckout(updatable, pv);
@@ -574,7 +572,6 @@ public class FDSServiceImpl implements FDSService, Runnable {
                 }
             }
         }
-
         // No updatable checkout found, create
         synchronized (pv) {
             if (!cacheContains(pv))
@@ -642,12 +639,10 @@ public class FDSServiceImpl implements FDSService, Runnable {
             logger.warn("Attempting to release null checkout");
             return;
         }
-
         if (!checkoutCache.contains(c)) {
             logger.warn("Attempting to release not cached checkout");
             return;
         }
-
         returnCheckout(c);
         */
         File root = null;
@@ -709,4 +704,3 @@ public class FDSServiceImpl implements FDSService, Runnable {
 }
 
 // vi: ai nosi sw=4 ts=4 expandtab
-

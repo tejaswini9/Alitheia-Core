@@ -36,7 +36,6 @@ package eu.sqooss.service.cluster;
 
 import eu.sqooss.core.AlitheiaCoreService;
 import eu.sqooss.service.db.StoredProject;
-import eu.sqooss.service.db.ClusterNode;
 
 /**
  * The clusternode service is the gateway in Alitheia to control the clusternode
@@ -93,10 +92,6 @@ public interface ClusterNodeService extends AlitheiaCoreService {
     
     // assign a project to this ClusterNode
     boolean assignProject(StoredProject project) throws ClusterNodeActionException;
-
-    // assign a project to that ClusterNode
-    boolean assignProject(ClusterNode node, StoredProject project) throws ClusterNodeActionException;
-
 
     /**
      * Check if project is assigned to this ClusterNode
